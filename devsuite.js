@@ -1,204 +1,159 @@
-(function(){
-if(window.__MDS)return;window.__MDS=1;
+javascript:(function(){
+    if(window.__MDS) { alert('Dev Suite already loaded!'); return; }
+    window.__MDS = 1;
 
-// ---------- STATE ----------
-const S = JSON.parse(localStorage.__MDS||"{}");
+    if(!confirm('Enable Dev Suite?')) return;
 
-// ---------- PANEL ----------
-const sheet=document.createElement('div');
-Object.assign(sheet.style,{ 
- position:'fixed',left:0,bottom:'-100%',
- width:'100%',height:'65%',
- background:'#111',color:'#fff',
- zIndex:999999,transition:'0.3s',
- borderTopLeftRadius:'16px',
- borderTopRightRadius:'16px',
- display:'flex',
- flexDirection:'column'
-});
+    // ==================== MAIN PANEL ====================
+    const sheet = document.createElement('div');
+    Object.assign(sheet.style, {
+        position: 'fixed', left: '0', bottom: '-100%',
+        width: '100%', height: '70%',
+        background: '#111', color: '#fff',
+        zIndex: 999999, transition: '0.4s cubic-bezier(0.32,0.72,0,1)',
+        borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
+        display: 'flex', flexDirection: 'column',
+        boxShadow: '0 -4px 30px rgba(0,0,0,0.6)',
+        overflow: 'hidden'
+    });
 
-sheet.innerHTML=`
-<div style="padding:10px;background:#222;text-align:center">DEV SUITE</div>
-<div id="tabs" style="display:flex;gap:6px;padding:6px;overflow:auto">
- <button data="inspect">Inspect</button>
- <button data="dom">DOM</button>
- <button data="css">CSS</button>
- <button data="js">JS</button>
- <button data="net">Net</button>
- <button data="tools">Tools</button>
-</div>
-<div id="view" style="flex:1;overflow:auto;padding:10px"></div>
-<div style="display:flex;gap:6px;padding:10px">
- <button id="freeze">Freeze</button>
- <button id="reload">Reload</button>
- <button id="save">Save</button>
- <button id="close">Close</button>
-</div>
-`;
+    sheet.innerHTML = `
+        <div style="padding:14px 20px;background:#1f1f1f;text-align:center;font-weight:bold;border-bottom:1px solid #333;">DEV SUITE ⚡️</div>
+        <div id="tabs" style="display:flex;gap:4px;padding:8px 6px;overflow-x:auto;background:#1a1a1a;">
+            <button data-tab="inspect" style="padding:8px 16px;border-radius:999px;white-space:nowrap;">Inspect</button>
+            <button data-tab="dom" style="padding:8px 16px;border-radius:999px;white-space:nowrap;">DOM</button>
+            <button data-tab="css" style="padding:8px 16px;border-radius:999px;white-space:nowrap;">CSS</button>
+            <button data-tab="js" style="padding:8px 16px;border-radius:999px;white-space:nowrap;">JS</button>
+            <button data-tab="tools" style="padding:8px 16px;border-radius:999px;white-space:nowrap;">Tools</button>
+        </div>
+        <div id="view" style="flex:1;overflow:auto;padding:16px;background:#111;"></div>
+        <div style="display:flex;gap:8px;padding:12px;background:#1f1f1f;">
+            <button id="freeze" style="flex:1;padding:12px;border-radius:999px;">Freeze</button>
+            <button id="reload" style="flex:1;padding:12px;border-radius:999px;">Reload</button>
+            <button id="close" style="flex:1;padding:12px;border-radius:999px;">Close</button>
+        </div>
+    `;
 
-document.body.appendChild(sheet);
+    document.body.appendChild(sheet);
 
-// ---------- FLOAT BUTTON ----------
-const btn=document.createElement('div');
-btn.innerHTML=S.stealth?'':'👹';
+    // ==================== FLOATING BUTTON ====================
+    const btn = document.createElement('div');
+    btn.innerHTML = '👹';
+    Object.assign(btn.style, {
+        position: 'fixed', bottom: '80px', right: '20px',
+        width: '64px', height: '64px',
+        borderRadius: '50%',
+        background: '#000',
+        color: '#fff',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '28px',
+        zIndex: 999999,
+        boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+        touchAction: 'none',
+        userSelect: 'none'
+    });
+    document.body.appendChild(btn);
 
-Object.assign(btn.style,{ 
- position:'fixed',
- bottom:'100px',
- right:'20px',
- width:'60px',
- height:'60px',
- borderRadius:'50%',
- background:'#000',
- color:'#fff',
- display:'flex',
- alignItems:'center',
- justifyContent:'center',
- fontSize:'22px',
- zIndex:999999,
- opacity:S.stealth?0.2:0.9,
- touchAction:'none'
-});
+    // ==================== CONTROLS ====================
+    let open = false;
 
-document.body.appendChild(btn);
+    function togglePanel() {
+        open = !open;
+        sheet.style.bottom = open ? '0' : '-100%';
+    }
 
-// ---------- PANEL CONTROL ----------
-let open=false;
-btn.onclick=()=>{};
+    btn.addEventListener('click', togglePanel);
 
-// ---------- GESTURE SYSTEM ----------
-let pressTimer=null;
-let lastTap=0;
-let dragging=false;
-let dx,dy;
+    // Double tap = Inspect
+    let lastTap = 0;
+    btn.addEventListener('touchend', (e) => {
+        const now = Date.now();
+        if (now - lastTap < 300) {
+            if (typeof startInspect === "function") startInspect();
+        }
+        lastTap = now;
+    });
 
-// TOUCH START
-btn.addEventListener('touchstart',(e)=>{
- const now=Date.now();
+    sheet.querySelector('#close').onclick = () => {
+        sheet.style.bottom = '-100%';
+        open = false;
+    };
 
- pressTimer=setTimeout(()=>{
-  dragging=true;
- },450);
+    // Reload button
+    sheet.querySelector('#reload').onclick = () => location.reload();
 
- // double tap = inspect
- if(now-lastTap<300){
-  clearTimeout(pressTimer);
-  dragging=false;
-  if(typeof startInspect==="function") startInspect();
- }
+    // ==================== INSPECT MODE ====================
+    let inspecting = false;
+    let hl = null;
+    let selectedEl = null;
 
- lastTap=now;
+    window.startInspect = function() {
+        if (inspecting) return;
+        inspecting = true;
 
- const t=e.touches[0];
- dx=t.clientX-btn.offsetLeft;
- dy=t.clientY-btn.offsetTop;
-});
+        hl = document.createElement('div');
+        Object.assign(hl.style, {
+            position: 'fixed',
+            border: '3px solid #00ff9d',
+            background: 'rgba(0,255,157,0.12)',
+            pointerEvents: 'none',
+            zIndex: 999998,
+            borderRadius: '4px'
+        });
+        document.body.appendChild(hl);
 
-// TOUCH MOVE
-btn.addEventListener('touchmove',(e)=>{
- if(!dragging)return;
+        document.addEventListener('touchstart', pickElement, true);
+        alert('👹 Tap any element to inspect');
+    };
 
- const t=e.touches[0];
- btn.style.left=(t.clientX-dx)+'px';
- btn.style.top=(t.clientY-dy)+'px';
- btn.style.right='auto';
- btn.style.bottom='auto';
-});
+    function pickElement(e) {
+        if (!inspecting) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
 
-// TOUCH END
-btn.addEventListener('touchend',()=>{
- clearTimeout(pressTimer);
+        selectedEl = e.target;
+        const rect = selectedEl.getBoundingClientRect();
 
- if(!dragging){
-  open=!open;
-  sheet.style.bottom=open?'0':'-100%';
- }
+        Object.assign(hl.style, {
+            top: rect.top + 'px',
+            left: rect.left + 'px',
+            width: rect.width + 'px',
+            height: rect.height + 'px'
+        });
 
- dragging=false;
-});
+        inspecting = false;
+        document.removeEventListener('touchstart', pickElement, true);
+        setTimeout(() => hl.remove(), 1200);
 
-// ---------- CLOSE BUTTON ----------
-sheet.querySelector('#close').onclick=()=>{
- sheet.style.bottom='-100%';
- open=false;
-};
+        // Show in DOM tab
+        showDOM();
+    }
 
-const view=sheet.querySelector('#view');
+    function showDOM() {
+        if (!selectedEl) return;
+        const view = sheet.querySelector('#view');
+        view.innerHTML = `
+            <strong>Selected:</strong> ${selectedEl.tagName.toLowerCase()}<br><br>
+            <textarea id="domEdit" style="width:100%;height:55%;font-family:monospace;font-size:13px;">${esc(selectedEl.outerHTML)}</textarea><br>
+            <button id="applyDom" style="padding:12px 24px;border-radius:999px;">Apply Changes</button>
+        `;
 
-// ---------- INSPECT ----------
-let inspecting=false,selectedEl,hl;
+        view.querySelector('#applyDom').onclick = () => {
+            try {
+                const tmp = document.createElement('div');
+                tmp.innerHTML = view.querySelector('#domEdit').value;
+                selectedEl.replaceWith(tmp.firstElementChild);
+                alert('✅ Applied!');
+            } catch(e) { alert('Error: ' + e.message); }
+        };
+    }
 
-function startInspect(){
- inspecting=true;
- hl=document.createElement('div');
- Object.assign(hl.style,{ 
-  position:'fixed',
-  border:'2px solid #00ffc3',
-  background:'rgba(0,255,200,0.15)',
-  zIndex:999998,
-  pointerEvents:'none'
- });
- document.body.appendChild(hl);
- document.addEventListener('touchstart',pick,true);
-}
+    function esc(s) {
+        return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
 
-function stopInspect(){
- inspecting=false;
- hl?.remove();
- document.removeEventListener('touchstart',pick,true);
-}
-
-function pick(e){
- if(!inspecting)return;
- selectedEl=e.target;
-
- const r=selectedEl.getBoundingClientRect();
-
- Object.assign(hl.style,{
-  top:r.top+'px',
-  left:r.left+'px',
-  width:r.width+'px',
-  height:r.height+'px'
- });
-
- e.preventDefault();
- e.stopPropagation();
-
- stopInspect();
- renderDOM();
-}
-
-// ---------- DOM ----------
-function renderDOM(){
- if(!selectedEl)return;
-
- view.innerHTML=`
-  <div>Path: ${getPath(selectedEl)}</div>
-  <textarea id="domEdit" style="width:100%;height:60%">${esc(selectedEl.outerHTML)}</textarea>
-  <button id="applyDom">Apply</button>
- `;
-
- view.querySelector('#applyDom').onclick=()=>{
-  const tmp=document.createElement('div');
-  tmp.innerHTML=view.querySelector('#domEdit').value;
-  selectedEl.replaceWith(tmp.firstElementChild);
- };
-}
-
-// ---------- UTILS ----------
-function esc(s){
- return s.replace(/[&<>'"]/g,t=>(
-  {'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t]
- ));
-}
-
-function getPath(el){
- let p=[];
- while(el.parentElement){
-  p.unshift(el.tagName.toLowerCase());
-  el=el.parentElement;
- }
- return p.join(' > ');
-}
+    alert('✅ Dev Suite Loaded!\n\nTap the 👹 button to open.\nDouble-tap 👹 for Inspect mode.');
 
 })();
