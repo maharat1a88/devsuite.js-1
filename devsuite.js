@@ -1,109 +1,289 @@
-(function(){
-    if(window.__MDS) return;
-    window.__MDS = 1;
+javascript:(function(){
 
-    if(!confirm('Enable Dev Suite?')) return;
+if(window.__DEVTOOL){
+  document.getElementById('dt_box')?.remove();
+  document.getElementById('__freeze_layer')?.remove();
+  delete window.__DEVTOOL;
+  return;
+}
+window.__DEVTOOL = 1;
 
-    // ==================== PANEL ====================
-    const sheet = document.createElement('div');
-    Object.assign(sheet.style, {
-        position:'fixed', left:'0', bottom:'-100%',
-        width:'100%', height:'68%',
-        background:'#111', color:'#fff',
-        zIndex:999999, transition:'0.4s cubic-bezier(0.32,0.72,0,1)',
-        borderTopLeftRadius:'24px', borderTopRightRadius:'24px',
-        display:'flex', flexDirection:'column',
-        boxShadow:'0 -4px 30px rgba(0,0,0,0.6)'
-    });
+// ===== STATE =====
+let frozen=false, scrollY=0, blocker=null, inspectMode=false;
+let visibleOnly=true;
+let history=[];
 
-    sheet.innerHTML = `
-        <div style="padding:14px;background:#1f1f1f;text-align:center;font-weight:bold;">DEV SUITE ⚡️</div>
-        <div id="tabs" style="display:flex;gap:6px;padding:8px;overflow-x:auto;background:#1a1a1a;">
-            <button data-tab="inspect" style="padding:8px 16px;border-radius:999px;white-space:nowrap;">Inspect</button>
-            <button data-tab="dom" style="padding:8px 16px;border-radius:999px;white-space:nowrap;">DOM</button>
-            <button data-tab="tools" style="padding:8px 16px;border-radius:999px;white-space:nowrap;">Tools</button>
-        </div>
-        <div id="view" style="flex:1;overflow:auto;padding:16px;"></div>
-        <div style="display:flex;gap:8px;padding:12px;background:#1f1f1f;">
-            <button id="reload" style="flex:1;padding:12px;border-radius:999px;">Reload</button>
-            <button id="close" style="flex:1;padding:12px;border-radius:999px;">Close</button>
-        </div>
-    `;
-    document.body.appendChild(sheet);
+// ===== HELPERS =====
+function isVisible(el){
+  if(!visibleOnly) return true;
+  const s = getComputedStyle(el);
+  return !(s.display==='none'||el.offsetParent===null);
+}
 
-    // ==================== FLOAT BUTTON ====================
-    const btn = document.createElement('div');
-    btn.innerHTML = '👹';
-    Object.assign(btn.style, {
-        position:'fixed', bottom:'80px', right:'20px',
-        width:'64px', height:'64px',
-        borderRadius:'50%', background:'#000', color:'#fff',
-        display:'flex', alignItems:'center', justifyContent:'center',
-        fontSize:'28px', zIndex:999999,
-        boxShadow:'0 4px 20px rgba(0,0,0,0.5)',
-        touchAction:'none'
-    });
-    document.body.appendChild(btn);
+function ensureDigitStyle(){
+  if(document.getElementById('dt-digit-style')) return;
 
-    // Controls
-    let open = false;
-    btn.onclick = () => { open = !open; sheet.style.bottom = open ? '0' : '-100%'; };
-    sheet.querySelector('#close').onclick = () => { sheet.style.bottom = '-100%'; open = false; };
-    sheet.querySelector('#reload').onclick = () => location.reload();
+  const style = document.createElement('style');
+  style.id = 'dt-digit-style';
+  style.textContent = `.dt-digit{color:black !important;font-weight:bold;}`;
+  document.head.appendChild(style);
+}
 
-    // Inspect Mode
-    let inspecting = false, hl = null, selected = null;
+function colorizeDigits(root=document.body){
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
 
-    window.startInspect = function(){
-        inspecting = true;
-        hl = document.createElement('div');
-        Object.assign(hl.style, {
-            position:'fixed', border:'3px solid #00ff9d',
-            background:'rgba(0,255,157,0.15)', pointerEvents:'none',
-            zIndex:999998, borderRadius:'6px'
-        });
-        document.body.appendChild(hl);
-        document.addEventListener('touchstart', pick, true);
-        alert('👹 Tap any element to inspect');
-    };
+  while(walker.nextNode()){
+    const node = walker.currentNode;
 
-    function pick(e){
-        if(!inspecting) return;
-        e.preventDefault(); e.stopImmediatePropagation();
-        selected = e.target;
-        const r = selected.getBoundingClientRect();
-        Object.assign(hl.style, {top:r.top+'px', left:r.left+'px', width:r.width+'px', height:r.height+'px'});
-        inspecting = false;
-        document.removeEventListener('touchstart', pick, true);
-        setTimeout(() => hl.remove(), 1500);
-        showDOM();
+    if(node.parentElement?.closest('[data-devtool], .dt-digit')) continue;
+
+    const text = node.nodeValue;
+    if(!/[0-9]/.test(text)) continue;
+
+    const replaced = text.replace(/(\$?\d[\d,]*(\.\d+)?)/g,
+      m=>`<span class="dt-digit">${m}</span>`);
+
+    if(replaced !== text){
+      const span = document.createElement('span');
+      span.innerHTML = replaced;
+      node.replaceWith(span);
     }
+  }
+}
 
-    function showDOM(){
-        if(!selected) return;
-        const v = sheet.querySelector('#view');
-        v.innerHTML = `
-            <strong>Element:</strong> ${selected.tagName}<br><br>
-            <textarea id="edit" style="width:100%;height:55%;font-family:monospace;font-size:13px;background:#222;color:#0f0;border:1px solid #333;">${selected.outerHTML.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</textarea><br>
-            <button id="apply" style="padding:12px 24px;border-radius:999px;">Apply Changes</button>
-        `;
-        v.querySelector('#apply').onclick = () => {
-            try {
-                const tmp = document.createElement('div');
-                tmp.innerHTML = v.querySelector('#edit').value;
-                selected.replaceWith(tmp.firstElementChild);
-                alert('✅ Applied!');
-            } catch(err){ alert('Error'); }
-        };
-    }
+// ===== GLOBAL INIT =====
+function init(){
+  ensureDigitStyle();
+  colorizeDigits(document.body);
 
-    // Double tap on button = Inspect
-    let lastTap = 0;
-    btn.addEventListener('touchend', () => {
-        const now = Date.now();
-        if(now - lastTap < 300) startInspect();
-        lastTap = now;
+  const observer = new MutationObserver(muts=>{
+    muts.forEach(m=>{
+      m.addedNodes.forEach(n=>{
+        if(n.nodeType===1) colorizeDigits(n);
+      });
     });
+  });
 
-    alert('✅ Dev Suite Loaded!\n\nTap 👹 to open | Double-tap 👹 for Inspect');
+  observer.observe(document.body,{childList:true,subtree:true});
+}
+
+// ===== START =====
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded', init);
+}else{
+  init();
+}
+
+// ===== UI =====
+const box = document.createElement('div');
+box.id='dt_box';
+box.setAttribute('data-devtool','true');
+
+Object.assign(box.style,{
+  position:'fixed',
+  top:'10px',
+  left:'10px',
+  background:'#111',
+  color:'#fff',
+  zIndex:'2147483647',
+  padding:'10px',
+  borderRadius:'10px',
+  fontFamily:'sans-serif'
+});
+
+box.innerHTML = `
+<b>DEV TOOL</b><br><br>
+<button id=fz>Freeze</button>
+<button id=ins>Inspect</button>
+<button id=css>CSS</button>
+<button id=inputs>Input</button>
+<button id=digits>Digits</button>
+<button id=livehtml>Live HTML</button>
+<button id=sr>Search/Replace</button>
+<button id=undo>Undo</button><br><br>
+<label><input type=checkbox id=vis checked> Visible Only</label><br><br>
+<button id=x>Close</button>
+`;
+
+document.body.appendChild(box);
+
+// ===== BUTTONS =====
+
+// digits
+box.querySelector('#digits').onclick = () => colorizeDigits();
+
+// visible toggle
+box.querySelector('#vis').onchange = e => visibleOnly = e.target.checked;
+
+// freeze
+box.querySelector('#fz').onclick = ()=>{
+  frozen=!frozen;
+
+  if(frozen){
+    box.querySelector('#fz').textContent='Resume';
+    scrollY=window.scrollY;
+
+    document.body.style.position='fixed';
+    document.body.style.top='-'+scrollY+'px';
+
+    blocker=document.createElement('div');
+    blocker.id='__freeze_layer';
+    Object.assign(blocker.style,{
+      position:'fixed',
+      top:0,left:0,width:'100%',height:'100%',
+      background:'rgba(0,0,0,0.4)',
+      zIndex:'2147483646'
+    });
+    document.body.appendChild(blocker);
+
+  }else{
+    box.querySelector('#fz').textContent='Freeze';
+    document.body.style.position='';
+    document.body.style.top='';
+    window.scrollTo(0,scrollY);
+    blocker?.remove();
+  }
+};
+
+// inspect modes
+box.querySelector('#ins').onclick=()=>{
+  inspectMode='text';
+  alert('Click element to edit text');
+};
+
+box.querySelector('#css').onclick=()=>{
+  inspectMode='css';
+  alert('Click element to edit CSS');
+};
+
+box.querySelector('#inputs').onclick=()=>{
+  inspectMode='input';
+  alert('Click input to edit value');
+};
+
+// click edit
+document.addEventListener('click',e=>{
+  if(!inspectMode) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+
+  const el = e.target;
+
+  if(inspectMode==='input'){
+    const val = prompt('Value:', el.value);
+    if(val!==null) el.value = val;
+  }
+
+  if(inspectMode==='text'){
+    const old = el.textContent;
+    const val = prompt('Text:', old);
+    if(val && val!==old){
+      history.push({type:'text',el,old});
+      el.textContent = val;
+    }
+  }
+
+  if(inspectMode==='css'){
+    const old = el.style.cssText;
+    const val = prompt('CSS:', old);
+    if(val!==null){
+      history.push({type:'css',el,old});
+      el.style.cssText = val;
+    }
+  }
+
+  inspectMode=false;
+
+},true);
+
+// search replace (respects visible toggle)
+box.querySelector('#sr').onclick=()=>{
+  const f = prompt('Find:');
+  if(!f) return;
+  const r = prompt('Replace with:');
+
+  document.querySelectorAll('*:not([data-devtool] *)').forEach(el=>{
+    if(el.children.length===0 && isVisible(el)){
+      if(el.textContent.includes(f)){
+        history.push({type:'text',el,old:el.textContent});
+        el.textContent = el.textContent.split(f).join(r);
+      }
+    }
+  });
+};
+
+// undo
+box.querySelector('#undo').onclick=()=>{
+  const last = history.pop();
+  if(!last) return;
+  if(last.type==='text') last.el.textContent = last.old;
+  if(last.type==='css') last.el.style.cssText = last.old;
+};
+
+// ===== LIVE HTML EDIT (NO RELOAD) =====
+box.querySelector('#livehtml').onclick = ()=>{
+
+  const panel = document.createElement('div');
+
+  panel.style = `
+    position:fixed;
+    top:50px;
+    left:50px;
+    width:85%;
+    height:80%;
+    background:#000;
+    color:#0f0;
+    z-index:2147483647;
+    padding:10px;
+    border:2px solid #0f0;
+  `;
+
+  panel.innerHTML = `
+    <b>LIVE HTML EDIT</b><br><br>
+
+    <input id=find placeholder="Find..." style="width:40%">
+    <input id=rep placeholder="Replace..." style="width:40%">
+    <button id=doAll>Replace All</button>
+
+    <br><br>
+
+    <textarea id=htmlbox style="width:100%;height:65%;"></textarea><br>
+
+    <button id=apply>Apply</button>
+    <button id=close>Close</button>
+  `;
+
+  document.body.appendChild(panel);
+
+  const boxEl = panel.querySelector('#htmlbox');
+  boxEl.value = document.documentElement.outerHTML;
+
+  panel.querySelector('#doAll').onclick = ()=>{
+    const f = panel.querySelector('#find').value;
+    const r = panel.querySelector('#rep').value;
+    if(!f) return;
+    boxEl.value = boxEl.value.split(f).join(r);
+  };
+
+  panel.querySelector('#apply').onclick = ()=>{
+    const temp = document.createElement('html');
+    temp.innerHTML = boxEl.value;
+
+    const newBody = temp.querySelector('body');
+    if(newBody){
+      document.body.innerHTML = newBody.innerHTML;
+    }
+  };
+
+  panel.querySelector('#close').onclick = ()=>panel.remove();
+};
+
+// close
+box.querySelector('#x').onclick=()=>{
+  box.remove();
+  blocker?.remove();
+  delete window.__DEVTOOL;
+};
+
 })();
